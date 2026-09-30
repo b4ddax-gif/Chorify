@@ -33,7 +33,7 @@ jobs:
           ZIP_FILE=$(find . -maxdepth 2 -type f -iname "*.zip" | head -1)
 
           if [ -n "$ZIP_FILE" ]; then
-            echo "Found project ZIP: $ZIP_FILE"
+            echo "Found ZIP: $ZIP_FILE"
 
             rm -rf chorify_project
             mkdir -p chorify_project
@@ -63,23 +63,18 @@ jobs:
             PROJECT_DIR=$(dirname "$SETTINGS")
           fi
 
-          echo "CHORIFY project:"
-          echo "$PROJECT_DIR"
-
+          echo "CHORIFY project: $PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Disable unnecessary KSP and Room
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
-          set -e
-
-          echo "Removing unused KSP configuration..."
-
           python3 <<'PY'
           from pathlib import Path
 
           root = Path("build.gradle.kts")
+
           if root.exists():
               s = root.read_text()
               s = s.replace(
@@ -89,6 +84,7 @@ jobs:
               root.write_text(s)
 
           app = Path("app/build.gradle.kts")
+
           if app.exists():
               s = app.read_text()
 
@@ -114,8 +110,30 @@ jobs:
 
               app.write_text(s)
 
-          print("KSP/Room build configuration removed.")
+          print("KSP/Room configuration cleaned.")
           PY
+
+      - name: Create debug keystore
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -e
+
+          rm -f debug.keystore
+
+          "$JAVA_HOME/bin/keytool" \
+            -genkeypair \
+            -v \
+            -keystore debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+          echo "debug.keystore created successfully."
 
       - name: Generate Gradle Wrapper
         working-directory: ${{ env.PROJECT_DIR }}
