@@ -25,31 +25,69 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Verify project
+      - name: Extract CHORIFY project
+        shell: bash
         run: |
-          echo "Checking CHORIFY project..."
-          test -f settings.gradle.kts
-          test -f build.gradle.kts
-          test -f app/build.gradle.kts
-          echo "Project files found."
+          set -e
+
+          echo "Repository files:"
+          find . -maxdepth 2 -type f | sort
+
+          ZIP_FILE=$(find . -maxdepth 2 -type f -iname "*.zip" | head -1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: CHORIFY ZIP file not found."
+            exit 1
+          fi
+
+          echo "Found ZIP: $ZIP_FILE"
+
+          mkdir -p chorify_project
+          unzip -q "$ZIP_FILE" -d chorify_project
+
+          echo "Extracted files:"
+          find chorify_project -maxdepth 3 -type f | sort
+
+      - name: Locate Android project
+        shell: bash
+        run: |
+          set -e
+
+          SETTINGS=$(find chorify_project -type f \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+            | head -1)
+
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: settings.gradle or settings.gradle.kts not found."
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$SETTINGS")
+
+          echo "Android project found at:"
+          echo "$PROJECT_DIR"
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Generate Gradle Wrapper
+        working-directory: ${{ env.PROJECT_DIR }}
         run: |
           gradle wrapper --gradle-version 9.3.1
           chmod +x gradlew
 
-      - name: Build CHORIFY Debug APK
+      - name: Build CHORIFY APK
+        working-directory: ${{ env.PROJECT_DIR }}
         run: |
           ./gradlew assembleDebug --stacktrace
 
       - name: Find APK
         run: |
-          echo "APK files:"
-          find . -type f -name "*.apk" -print
+          echo "Generated APK:"
+          find "${PROJECT_DIR}" -type f -name "*.apk" -print
 
       - name: Upload CHORIFY APK
         uses: actions/upload-artifact@v4
         with:
           name: CHORIFY-APK
-          path: app/build/outputs/apk/debug/*.apk
+          path: "**/build/outputs/apk/debug/*.apk"
           if-no-files-found: error
