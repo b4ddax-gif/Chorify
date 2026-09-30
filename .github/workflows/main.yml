@@ -25,49 +25,97 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Extract CHORIFY project
+      - name: Find CHORIFY project
         shell: bash
         run: |
           set -e
-
-          echo "Repository files:"
-          find . -maxdepth 2 -type f | sort
 
           ZIP_FILE=$(find . -maxdepth 2 -type f -iname "*.zip" | head -1)
 
-          if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: CHORIFY ZIP file not found."
-            exit 1
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Found project ZIP: $ZIP_FILE"
+
+            rm -rf chorify_project
+            mkdir -p chorify_project
+
+            unzip -q "$ZIP_FILE" -d chorify_project
+
+            SETTINGS=$(find chorify_project -type f \
+              \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+              | head -1)
+
+            if [ -z "$SETTINGS" ]; then
+              echo "ERROR: Gradle settings file not found."
+              exit 1
+            fi
+
+            PROJECT_DIR=$(dirname "$SETTINGS")
+          else
+            SETTINGS=$(find . -type f \
+              \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+              | head -1)
+
+            if [ -z "$SETTINGS" ]; then
+              echo "ERROR: Gradle project not found."
+              exit 1
+            fi
+
+            PROJECT_DIR=$(dirname "$SETTINGS")
           fi
 
-          echo "Found ZIP: $ZIP_FILE"
+          echo "CHORIFY project:"
+          echo "$PROJECT_DIR"
 
-          mkdir -p chorify_project
-          unzip -q "$ZIP_FILE" -d chorify_project
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-          echo "Extracted files:"
-          find chorify_project -maxdepth 3 -type f | sort
-
-      - name: Locate Android project
+      - name: Disable unnecessary KSP and Room
+        working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
           set -e
 
-          SETTINGS=$(find chorify_project -type f \
-            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
-            | head -1)
+          echo "Removing unused KSP configuration..."
 
-          if [ -z "$SETTINGS" ]; then
-            echo "ERROR: settings.gradle or settings.gradle.kts not found."
-            exit 1
-          fi
+          python3 <<'PY'
+          from pathlib import Path
 
-          PROJECT_DIR=$(dirname "$SETTINGS")
+          root = Path("build.gradle.kts")
+          if root.exists():
+              s = root.read_text()
+              s = s.replace(
+                  '  alias(libs.plugins.google.devtools.ksp) apply false\n',
+                  ''
+              )
+              root.write_text(s)
 
-          echo "Android project found at:"
-          echo "$PROJECT_DIR"
+          app = Path("app/build.gradle.kts")
+          if app.exists():
+              s = app.read_text()
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+              s = s.replace(
+                  '  alias(libs.plugins.google.devtools.ksp)\n',
+                  ''
+              )
+
+              s = s.replace(
+                  '  implementation(libs.androidx.room.ktx)\n',
+                  ''
+              )
+
+              s = s.replace(
+                  '  implementation(libs.androidx.room.runtime)\n',
+                  ''
+              )
+
+              s = s.replace(
+                  '  "ksp"(libs.androidx.room.compiler)\n',
+                  ''
+              )
+
+              app.write_text(s)
+
+          print("KSP/Room build configuration removed.")
+          PY
 
       - name: Generate Gradle Wrapper
         working-directory: ${{ env.PROJECT_DIR }}
@@ -78,12 +126,13 @@ jobs:
       - name: Build CHORIFY APK
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew clean assembleDebug --stacktrace
 
       - name: Find APK
+        working-directory: ${{ env.PROJECT_DIR }}
         run: |
           echo "Generated APK:"
-          find "${PROJECT_DIR}" -type f -name "*.apk" -print
+          find . -type f -name "*.apk" -print
 
       - name: Upload CHORIFY APK
         uses: actions/upload-artifact@v4
