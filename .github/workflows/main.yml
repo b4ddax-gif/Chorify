@@ -20,35 +20,36 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Gradle
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.10'
+          gradle-version: '9.3.1'
 
-      - name: Find Android project
+      - name: Verify project
         run: |
-          echo "Searching for Gradle project..."
-          find . -maxdepth 5 \( -name "settings.gradle" -o -name "settings.gradle.kts" \) -print
+          echo "Checking CHORIFY project..."
+          test -f settings.gradle.kts
+          test -f build.gradle.kts
+          test -f app/build.gradle.kts
+          echo "Project files found."
 
-      - name: Build CHORIFY APK
+      - name: Generate Gradle Wrapper
         run: |
-          PROJECT_DIR=$(dirname "$(find . -name 'settings.gradle*' -type f | head -1)")
+          gradle wrapper --gradle-version 9.3.1
+          chmod +x gradlew
 
-          if [ "$PROJECT_DIR" = "." ]; then
-            gradle assembleDebug --stacktrace
-          else
-            cd "$PROJECT_DIR"
-            gradle assembleDebug --stacktrace
-          fi
+      - name: Build CHORIFY Debug APK
+        run: |
+          ./gradlew assembleDebug --stacktrace
 
       - name: Find APK
         run: |
-          echo "Searching for APK..."
+          echo "APK files:"
           find . -type f -name "*.apk" -print
 
       - name: Upload CHORIFY APK
         uses: actions/upload-artifact@v4
         with:
           name: CHORIFY-APK
-          path: "**/build/outputs/apk/**/*.apk"
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
